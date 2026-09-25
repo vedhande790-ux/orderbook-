@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Order Book Terminal</title>
+<style>
+  :root{
+    --bg: #f2efe2;
+    --panel: #ece8d8;
+    --panel-header: #e6e1cd;
+    --line: #d8d2ba;
+    --line-strong: #c7c0a2;
+    --ink: #46422f;
+    --ink-dim: #7d7862;
+    --ink-faint: #a19a7c;
+    --green: #3f7a4a;
+    --green-bg: #dfe8d4;
+    --green-bg-strong: #cfe0be;
+    --red: #a4453a;
+    --red-bg: #f0ddd6;
+    --red-bg-strong: #ecd0c6;
+    --amber: #8a6d1f;
+    --white-ish: #f9f7ee;
+    --focus: #6b6547;
+    --radius: 3px;
+    --mono: "IBM Plex Mono", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body { min-height: 100vh; padding-bottom: 40px; }
+
+  ::selection { background: var(--line-strong); }
+
+  input:focus, button:focus, [tabindex]:focus {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background: var(--bg);
+    border-bottom: 3px solid var(--ink);
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--amber);
+    white-space: nowrap;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    position: relative;
+    top: -1px;
+  }
+  .status-dot.ok { background: var(--green); }
+  .status-dot.err { background: var(--red); }
+  .status-dot.paused { background: var(--ink-faint); }
+  .status-text { color: var(--ink-dim); white-space: nowrap; }
+  .status-text.err { color: var(--red); }
+
+  .topbar .spacer { flex: 1; }
+
+  .pause-toggle {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--ink-dim);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .pause-toggle input[type="checkbox"] {
+    width: 14px; height: 14px;
+    accent-color: var(--ink);
+  }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 12px;
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--white-ish); }
+  .btn:active { transform: translateY(1px); }
+
+  .url-input {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--white-ish);
+    color: var(--ink);
+    min-width: 190px;
+  }
+
+  /* ---------- Layout ---------- */
+  .layout {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1fr;
+    gap: 14px;
+    padding: 14px;
+    align-items: start;
+  }
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px;
+    background: var(--panel-header);
+    border-bottom: 1px solid var(--line-strong);
+    color: var(--ink-dim);
+    letter-spacing: 0.03em;
+    font-size: 11.5px;
+  }
+  .panel-header .title { color: var(--ink); font-weight: 600; }
+  .panel-body { padding: 12px; }
+
+  .link-action {
+    background: none; border: none; color: var(--ink-dim);
+    font-family: var(--mono); font-size: 11px; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .link-action:hover { color: var(--ink); }
+
+  /* ---------- Order book ---------- */
+  .book-scale {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 0;
+  }
+  .scale-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    background: var(--white-ish);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--ink-dim);
+    cursor: default;
+  }
+  .scale-btn.active { color: var(--ink); border-color: var(--line-strong); }
+
+  .book-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto auto;
+    padding: 4px 12px;
+    color: var(--ink-faint);
+    font-size: 11px;
+    border-bottom: 1px solid var(--line);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .book-cols span:nth-child(2),
+  .book-cols span:nth-child(3),
+  .book-cols span:nth-child(4) { text-align: right; }
+
+  .book-rows { position: relative; }
+
+  .book-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto auto;
+    padding: 3px 12px;
+    font-size: 12.5px;
+    position: relative;
+  }
+  .book-row .depth-fill {
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    z-index: 0;
+  }
+  .book-row.ask .depth-fill { background: var(--red-bg); }
+  .book-row.bid .depth-fill { background: var(--green-bg); }
+  .book-row.best.ask .depth-fill { background: var(--red-bg-strong); }
+  .book-row.best.bid .depth-fill { background: var(--green-bg-strong); }
+
+  .book-row > * { position: relative; z-index: 1; }
+  .book-row .price { text-align: left; }
+  .book-row.ask .price { color: var(--red); }
+  .book-row.bid .price { color: var(--green); }
+  .book-row .qty, .book-row .sum, .book-row .ord { text-align: right; color: var(--ink); }
+  .book-row.best .price { font-weight: 700; }
+
+  .book-empty-msg {
+    text-align: center;
+    padding: 14px 8px;
+    color: var(--ink-faint);
+  }
+
+  .spread-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: var(--panel-header);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+  }
+  .spread-row .mid { color: var(--ink-dim); }
+  .spread-row .spread-val { color: var(--ink); font-weight: 700; }
+
+  .book-meter {
+    height: 4px;
+    display: flex;
+    margin: 0 12px;
+    margin-top: 10px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--line);
+  }
+  .book-meter .b { background: var(--green); }
+  .book-meter .a { background: var(--red); }
+  .meter-labels {
+    display: flex; justify-content: space-between;
+    padding: 4px 12px 12px;
+    font-size: 11px;
+  }
+  .meter-labels .b { color: var(--green); }
+  .meter-labels .a { color: var(--red); }
+
+  .book-placeholder {
+    text-align: center;
+    color: var(--ink-faint);
+    padding: 18px 10px;
+    font-size: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---------- Place order ---------- */
+  .side-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .side-btn {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 11px 0;
+    border-radius: var(--radius);
+    cursor: pointer;
+    border: 1px solid var(--line-strong);
+    background: var(--white-ish);
+    color: var(--ink-dim);
+  }
+  .side-btn.buy.active { background: var(--green-bg-strong); border-color: var(--green); color: var(--green); }
+  .side-btn.sell.active { background: var(--red-bg-strong); border-color: var(--red); color: var(--red); }
+
+  .field { margin-bottom: 12px; }
+  .field label {
+    display: block;
+    color: var(--ink-dim);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .field input[type="text"], .field input[type="number"] {
+    width: 100%;
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 9px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--white-ish);
+    color: var(--ink);
+  }
+  .field input:disabled {
+    background: var(--panel);
+    color: var(--ink-faint);
+  }
+
+  .check-row {
+    display: flex; align-items: center; gap: 7px;
+    margin-bottom: 14px;
+    color: var(--ink-dim);
+    cursor: pointer;
+    user-select: none;
+    font-size: 12.5px;
+  }
+  .check-row input { width: 14px; height: 14px; accent-color: var(--ink); }
+
+  .submit-btn {
+    width: 100%;
+    font-family: var(--mono);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    font-size: 13px;
+    padding: 12px 0;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    cursor: pointer;
+    color: var(--white-ish);
+  }
+  .submit-btn.buy { background: var(--green); }
+  .submit-btn.sell { background: var(--red); }
+  .submit-btn:hover { filter: brightness(1.06); }
+  .submit-btn:disabled { opacity: 0.55; cursor: default; }
+
+  .result-box {
+    margin-top: 12px;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-size: 12px;
+    border: 1px solid var(--line-strong);
+    background: var(--white-ish);
+  }
+  .result-box.error { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+  .result-box.success { background: var(--green-bg); border-color: var(--green); color: var(--ink); }
+  .result-box .row { display: flex; justify-content: space-between; padding: 1px 0; }
+  .result-box .row .k { color: var(--ink-dim); }
+  .result-box .trades-list { margin-top: 6px; border-top: 1px dashed var(--line-strong); padding-top: 6px; }
+  .result-box .trade-line { display: flex; justify-content: space-between; padding: 1px 0; color: var(--ink-dim); }
+
+  /* ---------- Cancel ---------- */
+  .cancel-row { display: flex; gap: 8px; }
+  .cancel-row input {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 9px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--white-ish);
+    color: var(--ink);
+  }
+  .cancel-row .btn { white-space: nowrap; }
+
+  /* ---------- Trades feed ---------- */
+  .trades-panel-body { padding: 0; max-height: 560px; overflow-y: auto; }
+  .trade-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 10px;
+    align-items: baseline;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .trade-row .t-time { color: var(--ink-faint); font-size: 10.5px; white-space: nowrap; }
+  .trade-row .t-price { font-weight: 700; }
+  .trade-row .t-qty { color: var(--ink-dim); text-align: right; }
+  .trade-row .t-ids { color: var(--ink-faint); font-size: 10.5px; text-align: right; white-space: nowrap; }
+
+  .empty-note {
+    text-align: center;
+    color: var(--ink-faint);
+    padding: 30px 16px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  a.settings-note { color: var(--ink-dim); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">ORDER BOOK TERMINAL</div>
+  <div>
+    <span class="status-dot" id="statusDot"></span><span class="status-text" id="statusText">connecting…</span>
+  </div>
+  <div class="spacer"></div>
+  <label class="pause-toggle">
+    <input type="checkbox" id="pauseToggle" />
+    Pause polling
+  </label>
+  <input class="url-input" id="baseUrlInput" type="text" spellcheck="false" />
+  <button class="btn" id="saveUrlBtn">Save</button>
+</div>
+
+<div class="layout">
+
+  <!-- ORDER BOOK -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="title">Order book</span>
+      <span id="lastUpdated" style="color:var(--ink-faint); font-size:10.5px;">—</span>
+    </div>
+
+    <div class="book-cols">
+      <span>Price</span><span>Size</span><span>Sum</span><span>Ord</span>
+    </div>
+
+    <div id="asksContainer"></div>
+
+    <div class="spread-row">
+      <span id="bookMidBest" style="color:var(--ink-faint);">— / —</span>
+      <span class="mid">Mid <span id="bookMid" style="color:var(--ink);">—</span></span>
+      <span>Spread <span class="spread-val" id="bookSpread">—</span></span>
+    </div>
+
+    <div id="bidsContainer"></div>
+
+    <div id="depthMeterWrap">
+      <div class="book-meter"><div class="b" id="meterB" style="width:50%"></div><div class="a" id="meterA" style="width:50%"></div></div>
+      <div class="meter-labels"><span class="b" id="meterBLabel">B 50.0%</span><span class="a" id="meterALabel">50.0% S</span></div>
+    </div>
+
+    <div class="book-placeholder" id="bookEmptyPlaceholder" style="display:none;">
+      Order book is empty — place an order to get started.
+    </div>
+  </div>
+
+  <!-- PLACE ORDER -->
+  <div class="panel">
+    <div class="panel-header"><span class="title">Place order</span></div>
+    <div class="panel-body">
+      <div class="side-toggle">
+        <button class="side-btn buy active" id="btnBuy">BUY</button>
+        <button class="side-btn sell" id="btnSell">SELL</button>
+      </div>
+
+      <div class="field">
+        <label for="priceInput">Price ($)</label>
+        <input type="text" id="priceInput" inputmode="decimal" value="100.00" />
+      </div>
+
+      <div class="field">
+        <label for="qtyInput">Quantity</label>
+        <input type="text" id="qtyInput" inputmode="decimal" value="1" />
+      </div>
+
+      <label class="check-row">
+        <input type="checkbox" id="marketToggle" />
+        Market order (send price: null)
+      </label>
+
+      <button class="submit-btn buy" id="submitOrderBtn">BUY LIMIT</button>
+
+      <div id="orderResult"></div>
+    </div>
+  </div>
+
+  <!-- CANCEL + TRADES stack on smallest column via order below -->
+  <div style="display:flex; flex-direction:column; gap:14px;">
+    <div class="panel">
+      <div class="panel-header"><span class="title">Cancel order</span></div>
+      <div class="panel-body">
+        <div class="cancel-row">
+          <input type="text" id="cancelIdInput" placeholder="order id" />
+          <button class="btn" id="cancelBtn">Cancel</button>
+        </div>
+        <div id="cancelResult"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="padding: 0 14px;">
+  <div class="panel" style="max-width: 100%;">
+    <div class="panel-header">
+      <span class="title">Recent trades</span>
+      <button class="link-action" id="clearTradesBtn">Clear</button>
+    </div>
+    <div class="trades-panel-body" id="tradesFeed">
+      <div class="empty-note">No trades yet. Trades print here as your orders match.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- State ----------
+  var DEFAULT_BASE_URL = "http://127.0.0.1:3000";
+  var baseUrl = localStorage.getItem("obt_base_url") || DEFAULT_BASE_URL;
+  var side = "buy";
+  var isMarket = false;
+  var pollTimer = null;
+  var pollInFlight = false;
+  var paused = false;
+  var trades = []; // { price, qty, buyId, sellId, ts }
+
+  // ---------- Helpers ----------
+  function centsToDollarsStr(cents) {
+    if (cents === null || cents === undefined) return "—";
+    return "$" + (cents / 100).toFixed(2);
+  }
+
+  function dollarsToCents(str) {
+    var n = parseFloat(str);
+    if (isNaN(n)) return null;
+    return Math.round(n * 100);
+  }
+
+  function fmtQty(q) {
+    if (q === null || q === undefined) return "—";
+    var n = Number(q);
+    // trim trailing zeros but keep up to 4 decimals
+    var s = n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+    return s === "" ? "0" : s;
+  }
+
+  function fmtTime(d) {
+    var hh = String(d.getHours()).padStart(2, "0");
+    var mm = String(d.getMinutes()).padStart(2, "0");
+    var ss = String(d.getSeconds()).padStart(2, "0");
+    return hh + ":" + mm + ":" + ss;
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // ---------- Settings ----------
+  var baseUrlInput = document.getElementById("baseUrlInput");
+  var saveUrlBtn = document.getElementById("saveUrlBtn");
+  baseUrlInput.value = baseUrl;
+
+  saveUrlBtn.addEventListener("click", function () {
+    var v = baseUrlInput.value.trim();
+    if (!v) v = DEFAULT_BASE_URL;
+    v = v.replace(/\/+$/, "");
+    baseUrl = v;
+    localStorage.setItem("obt_base_url", baseUrl);
+    baseUrlInput.value = baseUrl;
+    fetchBook(); // immediate refresh against new URL
+  });
+
+  // ---------- Status ----------
+  var statusDot = document.getElementById("statusDot");
+  var statusText = document.getElementById("statusText");
+
+  function setStatus(state, msg) {
+    statusDot.className = "status-dot " + state;
+    statusText.className = "status-text" + (state === "err" ? " err" : "");
+    statusText.textContent = msg;
+  }
+
+  // ---------- Pause polling ----------
+  var pauseToggle = document.getElementById("pauseToggle");
+  pauseToggle.addEventListener("change", function () {
+    paused = pauseToggle.checked;
+    if (paused) {
+      setStatus("paused", "polling paused");
+    } else {
+      setStatus("ok", "connected");
+      fetchBook();
+    }
+  });
+
+  // ---------- Order book rendering ----------
+  var asksContainer = document.getElementById("asksContainer");
+  var bidsContainer = document.getElementById("bidsContainer");
+  var bookEmptyPlaceholder = document.getElementById("bookEmptyPlaceholder");
+  var bookMid = document.getElementById("bookMid");
+  var bookMidBest = document.getElementById("bookMidBest");
+  var bookSpread = document.getElementById("bookSpread");
+  var meterB = document.getElementById("meterB");
+  var meterA = document.getElementById("meterA");
+  var meterBLabel = document.getElementById("meterBLabel");
+  var meterALabel = document.getElementById("meterALabel");
+  var lastUpdated = document.getElementById("lastUpdated");
+  var depthMeterWrap = document.getElementById("depthMeterWrap");
+
+  function renderRow(level, sideClass, isBest, maxQty) {
+    var row = el("div", "book-row " + sideClass + (isBest ? " best" : ""));
+    var fill = el("div", "depth-fill");
+    var pct = maxQty > 0 ? Math.min(100, (level.qty / maxQty) * 100) : 0;
+    fill.style.width = pct + "%";
+    row.appendChild(fill);
+
+    var price = el("span", "price", centsToDollarsStr(level.price));
+    var qty = el("span", "qty", fmtQty(level.qty));
+    var sum = el("span", "sum", fmtQty(level.sum));
+    var ord = el("span", "ord", String(level.orders));
+    row.appendChild(price);
+    row.appendChild(qty);
+    row.appendChild(sum);
+    row.appendChild(ord);
+    return row;
+  }
+
+  function renderBook(book) {
+    var bids = (book.bids || []).slice(); // ascending by price
+    var asks = (book.asks || []).slice(); // ascending by price
+
+    var bothEmpty = bids.length === 0 && asks.length === 0;
+    bookEmptyPlaceholder.style.display = bothEmpty ? "block" : "none";
+    depthMeterWrap.style.display = bothEmpty ? "none" : "block";
+
+    // asks: render descending (highest at top, best/lowest at bottom)
+    var asksDesc = asks.slice().sort(function (a, b) { return b.price - a.price; });
+    // bids: render descending (best/highest at top)
+    var bidsDesc = bids.slice().sort(function (a, b) { return b.price - a.price; });
+
+    // running sums: for asks, sum accumulates from best ask upward (i.e. from bottom of the desc list to top)
+    var asksWithSum = [];
+    var runningAsk = 0;
+    for (var i = asksDesc.length - 1; i >= 0; i--) {
+      runningAsk += asksDesc[i].qty;
+      asksWithSum[i] = Object.assign({}, asksDesc[i], { sum: runningAsk });
+    }
+    var bidsWithSum = [];
+    var runningBid = 0;
+    for (var j = 0; j < bidsDesc.length; j++) {
+      runningBid += bidsDesc[j].qty;
+      bidsWithSum[j] = Object.assign({}, bidsDesc[j], { sum: runningBid });
+    }
+
+    var maxQty = 0;
+    asksWithSum.concat(bidsWithSum).forEach(function (l) { if (l.qty > maxQty) maxQty = l.qty; });
+
+    asksContainer.innerHTML = "";
+    if (asksWithSum.length === 0) {
+      asksContainer.appendChild(el("div", "book-empty-msg", "No asks"));
+    } else {
+      asksWithSum.forEach(function (level, idx) {
+        var isBest = idx === asksWithSum.length - 1; // lowest ask = best, at bottom
+        asksContainer.appendChild(renderRow(level, "ask", isBest, maxQty));
+      });
+    }
+
+    bidsContainer.innerHTML = "";
+    if (bidsWithSum.length === 0) {
+      bidsContainer.appendChild(el("div", "book-empty-msg", "No bids"));
+    } else {
+      bidsWithSum.forEach(function (level, idx) {
+        var isBest = idx === 0; // highest bid = best, at top
+        bidsContainer.appendChild(renderRow(level, "bid", isBest, maxQty));
+      });
+    }
+
+    var bestBid = bidsDesc.length ? bidsDesc[0].price : null;
+    var bestAsk = asksDesc.length ? asksDesc[asksDesc.length - 1].price : null;
+
+    if (bestBid !== null && bestAsk !== null) {
+      var spread = bestAsk - bestBid;
+      var mid = (bestAsk + bestBid) / 2;
+      bookSpread.textContent = centsToDollarsStr(spread);
+      bookMid.textContent = centsToDollarsStr(mid);
+      bookMidBest.textContent = centsToDollarsStr(bestBid) + " / " + centsToDollarsStr(bestAsk);
+    } else {
+      bookSpread.textContent = "—";
+      bookMid.textContent = "—";
+      bookMidBest.textContent = "— / —";
+    }
+
+    var totalBidQty = bids.reduce(function (a, l) { return a + l.qty; }, 0);
+    var totalAskQty = asks.reduce(function (a, l) { return a + l.qty; }, 0);
+    var totalQty = totalBidQty + totalAskQty;
+    var bPct = totalQty > 0 ? (totalBidQty / totalQty) * 100 : 50;
+    var aPct = 100 - bPct;
+    meterB.style.width = bPct + "%";
+    meterA.style.width = aPct + "%";
+    meterBLabel.textContent = "B " + bPct.toFixed(1) + "%";
+    meterALabel.textContent = aPct.toFixed(1) + "% S";
+
+    lastUpdated.textContent = fmtTime(new Date());
+  }
+
+  // ---------- Polling ----------
+  function fetchBook() {
+    if (paused || pollInFlight) return;
+    pollInFlight = true;
+    fetch(baseUrl + "/api/book")
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        setStatus("ok", "connected");
+        renderBook(data);
+      })
+      .catch(function (err) {
+        setStatus("err", "Failed to fetch — " + err.message);
+      })
+      .finally(function () {
+        pollInFlight = false;
+      });
+  }
+
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(fetchBook, 500);
+    fetchBook();
+  }
+
+  // ---------- Side toggle ----------
+  var btnBuy = document.getElementById("btnBuy");
+  var btnSell = document.getElementById("btnSell");
+  var submitOrderBtn = document.getElementById("submitOrderBtn");
+
+  function updateSideUI() {
+    btnBuy.classList.toggle("active", side === "buy");
+    btnSell.classList.toggle("active", side === "sell");
+    submitOrderBtn.classList.toggle("buy", side === "buy");
+    submitOrderBtn.classList.toggle("sell", side === "sell");
+    submitOrderBtn.textContent = (side === "buy" ? "BUY " : "SELL ") + (isMarket ? "MARKET" : "LIMIT");
+  }
+
+  btnBuy.addEventListener("click", function () { side = "buy"; updateSideUI(); });
+  btnSell.addEventListener("click", function () { side = "sell"; updateSideUI(); });
+
+  // ---------- Market toggle ----------
+  var marketToggle = document.getElementById("marketToggle");
+  var priceInput = document.getElementById("priceInput");
+  marketToggle.addEventListener("change", function () {
+    isMarket = marketToggle.checked;
+    priceInput.disabled = isMarket;
+    updateSideUI();
+  });
+
+  // ---------- Place order ----------
+  var qtyInput = document.getElementById("qtyInput");
+  var orderResult = document.getElementById("orderResult");
+
+  function renderOrderResult(box, data, isError) {
+    box.innerHTML = "";
+    if (isError) {
+      box.className = "result-box error";
+      box.textContent = String(data);
+      return;
+    }
+    box.className = "result-box success";
+
+    var rows = [
+      ["Order ID", String(data.order_id)],
+      ["Status", String(data.status)],
+      ["Remaining", fmtQty(data.remaining)]
+    ];
+    rows.forEach(function (pair) {
+      var r = el("div", "row");
+      var k = el("span", "k", pair[0]);
+      var v = el("span", "v", pair[1]);
+      r.appendChild(k); r.appendChild(v);
+      box.appendChild(r);
+    });
+
+    if (data.trades && data.trades.length > 0) {
+      var tl = el("div", "trades-list");
+      data.trades.forEach(function (t) {
+        var line = el("div", "trade-line");
+        line.textContent = centsToDollarsStr(t.price) + " × " + fmtQty(t.qty) +
+          "  (buy #" + t.buy_order_id + " / sell #" + t.sell_order_id + ")";
+        tl.appendChild(line);
+      });
+      box.appendChild(tl);
+    }
+  }
+
+  function ingestTrades(newTrades) {
+    if (!newTrades || newTrades.length === 0) return;
+    var now = new Date();
+    newTrades.forEach(function (t) {
+      trades.unshift({
+        price: t.price,
+        qty: t.qty,
+        buyId: t.buy_order_id,
+        sellId: t.sell_order_id,
+        ts: now
+      });
+    });
+    renderTradesFeed();
+  }
+
+  submitOrderBtn.addEventListener("click", function () {
+    var qty = parseFloat(qtyInput.value);
+    var priceCents = isMarket ? null : dollarsToCents(priceInput.value);
+
+    if (isNaN(qty) || qty <= 0) {
+      renderOrderResult(orderResult, "Enter a valid quantity.", true);
+      return;
+    }
+    if (!isMarket && priceCents === null) {
+      renderOrderResult(orderResult, "Enter a valid price, or check Market order.", true);
+      return;
+    }
+
+    var body = { side: side, price: isMarket ? null : priceCents, qty: qty };
+
+    submitOrderBtn.disabled = true;
+    fetch(baseUrl + "/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+      .then(function (res) {
+        return res.text().then(function (text) {
+          if (!res.ok) throw new Error(text || ("HTTP " + res.status));
+          return JSON.parse(text);
+        });
+      })
+      .then(function (data) {
+        renderOrderResult(orderResult, data, false);
+        ingestTrades(data.trades);
+        fetchBook();
+      })
+      .catch(function (err) {
+        renderOrderResult(orderResult, err.message, true);
+      })
+      .finally(function () {
+        submitOrderBtn.disabled = false;
+      });
+  });
+
+  // ---------- Cancel order ----------
+  var cancelIdInput = document.getElementById("cancelIdInput");
+  var cancelBtn = document.getElementById("cancelBtn");
+  var cancelResult = document.getElementById("cancelResult");
+
+  function renderCancelResult(data, isError) {
+    cancelResult.innerHTML = "";
+    var box = el("div", "result-box " + (isError ? "error" : "success"));
+    if (isError) {
+      box.textContent = String(data);
+    } else {
+      [["Order ID", String(data.order_id)], ["Status", String(data.status)], ["Remaining", fmtQty(data.remaining)]]
+        .forEach(function (pair) {
+          var r = el("div", "row");
+          r.appendChild(el("span", "k", pair[0]));
+          r.appendChild(el("span", "v", pair[1]));
+          box.appendChild(r);
+        });
+    }
+    cancelResult.appendChild(box);
+  }
+
+  cancelBtn.addEventListener("click", function () {
+    var idStr = cancelIdInput.value.trim();
+    if (!idStr || isNaN(Number(idStr))) {
+      renderCancelResult("Enter a valid order id.", true);
+      return;
+    }
+    cancelBtn.disabled = true;
+    fetch(baseUrl + "/api/orders/" + encodeURIComponent(idStr), { method: "DELETE" })
+      .then(function (res) {
+        return res.text().then(function (text) {
+          if (!res.ok) throw new Error(text || ("HTTP " + res.status));
+          return JSON.parse(text);
+        });
+      })
+      .then(function (data) {
+        renderCancelResult(data, false);
+        fetchBook();
+      })
+      .catch(function (err) {
+        renderCancelResult(err.message, true);
+      })
+      .finally(function () {
+        cancelBtn.disabled = false;
+      });
+  });
+
+  // show the default "enter valid order id" hint on load, matching reference
+  renderCancelResult("Enter a valid order id.", true);
+
+  // ---------- Trades feed ----------
+  var tradesFeed = document.getElementById("tradesFeed");
+  var clearTradesBtn = document.getElementById("clearTradesBtn");
+
+  function renderTradesFeed() {
+    tradesFeed.innerHTML = "";
+    if (trades.length === 0) {
+      tradesFeed.appendChild(el("div", "empty-note", "No trades yet. Trades print here as your orders match."));
+      return;
+    }
+    trades.forEach(function (t) {
+      var row = el("div", "trade-row");
+      row.appendChild(el("span", "t-time", fmtTime(t.ts)));
+      row.appendChild(el("span", "t-price", centsToDollarsStr(t.price)));
+      row.appendChild(el("span", "t-qty", "× " + fmtQty(t.qty)));
+      row.appendChild(el("span", "t-ids", "B#" + t.buyId + " / S#" + t.sellId));
+      tradesFeed.appendChild(row);
+    });
+  }
+
+  clearTradesBtn.addEventListener("click", function () {
+    trades = [];
+    renderTradesFeed();
+  });
+
+  // ---------- Init ----------
+  updateSideUI();
+  renderTradesFeed();
+  startPolling();
+})();
+</script>
+
+</body>
+</html>
